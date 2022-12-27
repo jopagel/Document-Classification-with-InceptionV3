@@ -1,0 +1,6 @@
+pandas
+numpy
+torch
+ray-2.2.0
+tensorflow
+torchvision
