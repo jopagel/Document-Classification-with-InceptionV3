@@ -1,26 +1,13 @@
-import pathlib
-import random
 import pandas as pd
-import pandas as pd
-import numpy as np
-import tensorflow as tf
 import os
-import time
 import torch.nn as nn
 import torch.optim as optim
-import torchvision
 from torchvision import datasets, models, transforms
 from torchvision.io import read_image, ImageReadMode
-import copy
 import pathlib
 import random
 import torch
 from torch.utils.data import Dataset
-from torchvision import datasets
-from torchvision.transforms import ToTensor
-import matplotlib.pyplot as plt
-from torch.utils.data import DataLoader
-from torch.utils.data.sampler import SubsetRandomSampler
 from ray import tune
 from ray.tune import CLIReporter
 from ray.tune.schedulers import ASHAScheduler
@@ -54,13 +41,209 @@ def get_file_paths_and_labels(data_root):
 
 
 def initialize_model(num_classes=10, use_pretrained=True):
+    """
+    Initialize InceptionV3 with a specified number of output classes.
+
+    Parameters:
+    -------
+    num_classes: the number of document classes
+    use_pretrained: specify whether to use the InceptionV3 with pretrained weights.
+
+    Returns
+    -------
+    model_ft: the initialized InceptionV3 model
+    """
     model_ft = models.inception_v3(pretrained=use_pretrained)
     # Handle the auxilary net
     num_ftrs = model_ft.AuxLogits.fc.in_features
     model_ft.AuxLogits.fc = nn.Linear(num_ftrs, num_classes)
     # Handle the primary net
     num_ftrs = model_ft.fc.in_features
-    model_ft.fc = nn.Linear(num_ftrs,num_classes)
-    input_size = 299
+    model_ft.fc = nn.Linear(num_ftrs, num_classes)
 
-    return model_ft, input_size
+    return model_ft
+
+
+class CustomImageDataset(Dataset):
+    """
+    Custom Pytorch Dataset.
+    """
+    def __init__(self, transform, labels_df=labels_df, image_dir=image_dir):
+        self.img_labels = labels_df
+        self.image_dir = image_dir
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.img_labels)
+
+    def __getitem__(self, idx):
+        img_path = os.path.join(self.image_dir, self.img_labels.iloc[idx, 0])
+        image = read_image(img_path, mode=ImageReadMode.RGB)
+        image = self.transform(image)
+        label = self.img_labels.iloc[idx, 1]
+
+        return image, label
+
+
+def train_inception(config):
+    """
+    Training procedure of InceptionV3.
+
+    Parameters:
+    -------
+    num_classes: the number of document classes
+    use_pretrained: specify whether to use the InceptionV3 with pretrained weights.
+
+    Returns
+    -------
+    model_ft: the initialized InceptionV3 model
+    """
+
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=config["batch_size"],
+                                           sampler=train_sampler)
+
+    val_loader = torch.utils.data.DataLoader(test_dataset, batch_size=config["batch_size"],
+                                                sampler=val_sampler)
+
+    dataloaders = {"train": train_loader, "val": val_loader}
+
+    net, input_size = initialize_model()
+    device = "cpu"
+    if torch.cuda.is_available():
+        device = "cuda:0"
+        if torch.cuda.device_count() > 1:
+            net = nn.DataParallel(net)
+    net.to(device)
+
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.SGD(net.parameters(), lr=config["lr"], momentum=config["mom"], weight_decay=config["weight_decay"])
+
+
+    for epoch in range(config["num_epochs"]):  # loop over the dataset multiple times
+        running_loss = 0.0
+        epoch_steps = 0
+        for i, data in enumerate(dataloaders["train"], 0):
+            # get the inputs; data is a list of [inputs, labels]
+            inputs, labels = data
+            inputs, labels = inputs.to(device), labels.to(device)
+
+            # zero the parameter gradients
+            optimizer.zero_grad()
+
+            # forward + backward + optimize
+            outputs, aux_outputs = net(inputs)
+            loss1 = criterion(outputs, labels)
+            loss2 = criterion(aux_outputs, labels)
+            loss = loss1 + 0.4*loss2
+            loss.backward()
+            optimizer.step()
+
+            # print statistics
+            running_loss += loss.item()
+            epoch_steps += 1
+            if i % 8000 == 7999:  # print every 2000 mini-batches
+                print("[%d, %5d] loss: %.3f" % (epoch + 1, i + 1,
+                                                running_loss / epoch_steps))
+                running_loss = 0.0
+
+        # Validation loss
+        val_loss = 0.0
+        val_steps = 0
+        total = 0
+        correct = 0
+        for i, data in enumerate(dataloaders["val"], 0):
+            with torch.no_grad():
+                inputs, labels = data
+                inputs, labels = inputs.to(device), labels.to(device)
+
+                outputs, aux_outputs = net(inputs)
+                _, predicted = torch.max(outputs.data, 1)
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
+
+                loss = criterion(outputs, labels)
+                val_loss += loss.cpu().numpy()
+                val_steps += 1
+
+        with tune.checkpoint_dir(epoch) as checkpoint_dir:
+            path = os.path.join(checkpoint_dir, "checkpoint")
+            print(f"The path is: {path}")
+            torch.save((net.state_dict(), optimizer.state_dict()), path)
+
+        tune.report(loss=(val_loss / val_steps), accuracy=correct / total)
+    print("Finished Training")
+
+
+def test_accuracy(net, config, device="cuda"):
+    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=config["batch_size"],
+                                                sampler=test_sampler)
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        for data in test_loader:
+            images, labels = data
+            images, labels = images.to(device), labels.to(device)
+            outputs, aux_outputs = net(images)
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+
+    return correct / total
+
+
+def main(hyperparamter_grid, num_samples=10, max_num_epochs=15, gpus_per_trial=1):
+    """
+    Function to tune the hyperparameters with Ray.
+
+    Parameters:
+    -------
+    hyperparamter_grid: the hyperparameter grid
+    num_samples: the number of models to sample hyperparameters for.
+    max_num_epochs: the number of epochs for which the models are to be trained.
+    gpus: the number of gpus for model training.
+
+    """
+
+    scheduler = ASHAScheduler(
+        metric="loss",
+        mode="min",
+        max_t=max_num_epochs,
+        grace_period=5,
+        reduction_factor=2)
+
+    reporter = CLIReporter(
+        metric_columns=["loss", "accuracy", "training_iteration"])
+
+    result = tune.run(
+        train_inception,
+        resources_per_trial={"cpu": 2, "gpu": gpus_per_trial},
+        config=hyperparamter_grid,
+        num_samples=num_samples,
+        scheduler=scheduler,
+        progress_reporter=reporter)
+
+    best_trial = result.get_best_trial("loss", "min", "last")
+    print("Best trial config: {}".format(best_trial.config))
+    print("Best trial final validation loss: {}".format(
+        best_trial.last_result["loss"]))
+    print("Best trial final validation accuracy: {}F".format(
+        best_trial.last_result["accuracy"]))
+
+    best_trained_model, input_size = initialize_model()
+    device = "cpu"
+    if torch.cuda.is_available():
+        device = "cuda:0"
+        if gpus_per_trial > 1:
+            best_trained_model = nn.DataParallel(best_trained_model)
+    best_trained_model.to(device)
+
+    print(f"The checkpoint directory is: {best_trial.checkpoint.dir_or_data}")
+
+    best_checkpoint_dir = best_trial.checkpoint.dir_or_data
+
+    model_state, optimizer_state = torch.load(os.path.join(
+        best_checkpoint_dir, "checkpoint"))
+    best_trained_model.load_state_dict(model_state)
+
+    test_acc = test_accuracy(best_trained_model, config, device)
+    print("Best trial test set accuracy: {}".format(test_acc))
