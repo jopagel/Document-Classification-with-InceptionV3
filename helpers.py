@@ -13,7 +13,6 @@ from ray.tune import CLIReporter
 from ray.tune.schedulers import ASHAScheduler
 
 
-
 def get_file_paths_and_labels(data_root):
     """
     Returns a dataframe with the columns "path" and "label" corresponding to each image in the data root.
@@ -30,12 +29,14 @@ def get_file_paths_and_labels(data_root):
     label_to_index: dict
     dictionary that maps the numerical class label back to the document name
     """
-    image_paths = sorted([str(path).split("jpg/")[1] for path in data_root.glob('*/*.jpg')])
+    image_paths = sorted(
+        [str(path).split("jpg/")[1] for path in data_root.glob("*/*.jpg")]
+    )
     random.shuffle(image_paths)
-    label_names = sorted(item.name for item in data_root.glob('*/') if item.is_dir())
+    label_names = sorted(item.name for item in data_root.glob("*/") if item.is_dir())
     label_to_index = dict((name, index) for index, name in enumerate(label_names))
     labels = [label_to_index[pathlib.Path(path).parent.name] for path in image_paths]
-    labels_df = pd.DataFrame({"path": image_paths, "label": labels })
+    labels_df = pd.DataFrame({"path": image_paths, "label": labels})
 
     return labels_df, label_to_index
 
@@ -68,6 +69,7 @@ class CustomImageDataset(Dataset):
     """
     Custom Pytorch Dataset.
     """
+
     def __init__(self, transform, labels_df=labels_df, image_dir=image_dir):
         self.img_labels = labels_df
         self.image_dir = image_dir
@@ -99,11 +101,13 @@ def train_inception(config):
     model_ft: the initialized InceptionV3 model
     """
 
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=config["batch_size"],
-                                           sampler=train_sampler)
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset, batch_size=config["batch_size"], sampler=train_sampler
+    )
 
-    val_loader = torch.utils.data.DataLoader(test_dataset, batch_size=config["batch_size"],
-                                                sampler=val_sampler)
+    val_loader = torch.utils.data.DataLoader(
+        test_dataset, batch_size=config["batch_size"], sampler=val_sampler
+    )
 
     dataloaders = {"train": train_loader, "val": val_loader}
 
@@ -116,8 +120,12 @@ def train_inception(config):
     net.to(device)
 
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(net.parameters(), lr=config["lr"], momentum=config["mom"], weight_decay=config["weight_decay"])
-
+    optimizer = optim.SGD(
+        net.parameters(),
+        lr=config["lr"],
+        momentum=config["mom"],
+        weight_decay=config["weight_decay"],
+    )
 
     for epoch in range(config["num_epochs"]):  # loop over the dataset multiple times
         running_loss = 0.0
@@ -134,7 +142,7 @@ def train_inception(config):
             outputs, aux_outputs = net(inputs)
             loss1 = criterion(outputs, labels)
             loss2 = criterion(aux_outputs, labels)
-            loss = loss1 + 0.4*loss2
+            loss = loss1 + 0.4 * loss2
             loss.backward()
             optimizer.step()
 
@@ -142,8 +150,10 @@ def train_inception(config):
             running_loss += loss.item()
             epoch_steps += 1
             if i % 8000 == 7999:  # print every 2000 mini-batches
-                print("[%d, %5d] loss: %.3f" % (epoch + 1, i + 1,
-                                                running_loss / epoch_steps))
+                print(
+                    "[%d, %5d] loss: %.3f"
+                    % (epoch + 1, i + 1, running_loss / epoch_steps)
+                )
                 running_loss = 0.0
 
         # Validation loss
@@ -175,8 +185,9 @@ def train_inception(config):
 
 
 def test_accuracy(net, config, device="cuda"):
-    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=config["batch_size"],
-                                                sampler=test_sampler)
+    test_loader = torch.utils.data.DataLoader(
+        test_dataset, batch_size=config["batch_size"], sampler=test_sampler
+    )
     correct = 0
     total = 0
     with torch.no_grad():
@@ -209,10 +220,10 @@ def main(hyperparamter_grid, num_samples=10, max_num_epochs=15, gpus_per_trial=1
         mode="min",
         max_t=max_num_epochs,
         grace_period=5,
-        reduction_factor=2)
+        reduction_factor=2,
+    )
 
-    reporter = CLIReporter(
-        metric_columns=["loss", "accuracy", "training_iteration"])
+    reporter = CLIReporter(metric_columns=["loss", "accuracy", "training_iteration"])
 
     result = tune.run(
         train_inception,
@@ -220,14 +231,17 @@ def main(hyperparamter_grid, num_samples=10, max_num_epochs=15, gpus_per_trial=1
         config=hyperparamter_grid,
         num_samples=num_samples,
         scheduler=scheduler,
-        progress_reporter=reporter)
+        progress_reporter=reporter,
+    )
 
     best_trial = result.get_best_trial("loss", "min", "last")
     print("Best trial config: {}".format(best_trial.config))
-    print("Best trial final validation loss: {}".format(
-        best_trial.last_result["loss"]))
-    print("Best trial final validation accuracy: {}F".format(
-        best_trial.last_result["accuracy"]))
+    print("Best trial final validation loss: {}".format(best_trial.last_result["loss"]))
+    print(
+        "Best trial final validation accuracy: {}F".format(
+            best_trial.last_result["accuracy"]
+        )
+    )
 
     best_trained_model, input_size = initialize_model()
     device = "cpu"
@@ -241,8 +255,9 @@ def main(hyperparamter_grid, num_samples=10, max_num_epochs=15, gpus_per_trial=1
 
     best_checkpoint_dir = best_trial.checkpoint.dir_or_data
 
-    model_state, optimizer_state = torch.load(os.path.join(
-        best_checkpoint_dir, "checkpoint"))
+    model_state, optimizer_state = torch.load(
+        os.path.join(best_checkpoint_dir, "checkpoint")
+    )
     best_trained_model.load_state_dict(model_state)
 
     test_acc = test_accuracy(best_trained_model, config, device)
