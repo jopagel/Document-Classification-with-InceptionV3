@@ -1,9 +1,3 @@
-ToDos:
-
-- Refactoring der Funktionen aus dem Notebook ins helper.py modul und docstrings (dabei besonders auf argumente achten -> einige passen noch nicht)
-- nochmal über den blog post gehen
-  - config file erstellen
-- gesamten neuen workflow auf colab vertesten
 
 ### Document Classification with InceptionV3 
 
