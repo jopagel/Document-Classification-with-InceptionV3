@@ -29,15 +29,12 @@ def get_file_paths_and_labels(data_root):
     label_to_index: dict
     dictionary that maps the numerical class label back to the document name
     """
-    image_paths = sorted(
-        [str(path).split("jpg/")[1] for path in data_root.glob("*/*.jpg")]
-    )
+    image_paths = sorted([str(path).split("jpg\\")[1] for path in data_root.glob('*\\*.jpg')])
     random.shuffle(image_paths)
-    label_names = sorted(item.name for item in data_root.glob("*/") if item.is_dir())
+    label_names = sorted(item.name for item in data_root.glob('*\\') if item.is_dir())
     label_to_index = dict((name, index) for index, name in enumerate(label_names))
     labels = [label_to_index[pathlib.Path(path).parent.name] for path in image_paths]
     labels_df = pd.DataFrame({"path": image_paths, "label": labels})
-
     return labels_df, label_to_index
 
 
@@ -70,7 +67,7 @@ class CustomImageDataset(Dataset):
     Custom Pytorch Dataset.
     """
 
-    def __init__(self, transform, labels_df=labels_df, image_dir=image_dir):
+    def __init__(self, transform, labels_df, image_dir):
         self.img_labels = labels_df
         self.image_dir = image_dir
         self.transform = transform
@@ -87,18 +84,14 @@ class CustomImageDataset(Dataset):
         return image, label
 
 
-def train_inception(config):
+def train_inception(config, train_dataset, test_dataset):
     """
     Training procedure of InceptionV3.
 
     Parameters:
     -------
-    num_classes: the number of document classes
-    use_pretrained: specify whether to use the InceptionV3 with pretrained weights.
+    config: configuration of model training
 
-    Returns
-    -------
-    model_ft: the initialized InceptionV3 model
     """
 
     train_loader = torch.utils.data.DataLoader(
@@ -184,7 +177,19 @@ def train_inception(config):
     print("Finished Training")
 
 
-def test_accuracy(net, config, device="cuda"):
+def test_accuracy(net, config, test_dataset, test_sampler, device="cuda"):
+    """
+    Function to test the the trained model on the test dataset
+
+    Parameters:
+    -------
+    hyperparameter_grid: the hyperparameter grid
+    num_samples: the number of models to sample hyperparameters for.
+    max_num_epochs: the number of epochs for which the models are to be trained.
+    gpus: the number of gpus for model training.
+
+    """
+
     test_loader = torch.utils.data.DataLoader(
         test_dataset, batch_size=config["batch_size"], sampler=test_sampler
     )
@@ -202,7 +207,7 @@ def test_accuracy(net, config, device="cuda"):
     return correct / total
 
 
-def main(hyperparamter_grid, num_samples=10, max_num_epochs=15, gpus_per_trial=1):
+def main(hyperparameter_grid, num_samples=10, max_num_epochs=15, gpus_per_trial=1):
     """
     Function to tune the hyperparameters with Ray.
 
@@ -250,8 +255,6 @@ def main(hyperparamter_grid, num_samples=10, max_num_epochs=15, gpus_per_trial=1
         if gpus_per_trial > 1:
             best_trained_model = nn.DataParallel(best_trained_model)
     best_trained_model.to(device)
-
-    print(f"The checkpoint directory is: {best_trial.checkpoint.dir_or_data}")
 
     best_checkpoint_dir = best_trial.checkpoint.dir_or_data
 

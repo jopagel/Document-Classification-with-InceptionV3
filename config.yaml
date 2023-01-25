@@ -1,4 +1,4 @@
-IMAGE_DIR : "/content/drive/MyDrive/Tobacco3482-jpg/"
+IMAGE_DIR : 'C:\Users\Johannes\Documents\Tobacco3482-jpg\'
 NUM_CLASSES : 10
 NUM_EPOCHS : 15
 VAL_SPLIT_REL : 0.1
