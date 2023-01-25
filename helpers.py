@@ -233,7 +233,7 @@ def main(hyperparameter_grid, num_samples=10, max_num_epochs=15, gpus_per_trial=
     result = tune.run(
         train_inception,
         resources_per_trial={"cpu": 2, "gpu": gpus_per_trial},
-        config=hyperparamter_grid,
+        config=hyperparameter_grid,
         num_samples=num_samples,
         scheduler=scheduler,
         progress_reporter=reporter,
@@ -263,5 +263,5 @@ def main(hyperparameter_grid, num_samples=10, max_num_epochs=15, gpus_per_trial=
     )
     best_trained_model.load_state_dict(model_state)
 
-    test_acc = test_accuracy(best_trained_model, config, device)
+    test_acc = test_accuracy(best_trained_model, hyperparameter_grid, device)
     print("Best trial test set accuracy: {}".format(test_acc))
