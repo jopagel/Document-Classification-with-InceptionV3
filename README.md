@@ -1,6 +1,9 @@
 
 ### Document Classification with InceptionV3 
 
+*Note: There is a [blog post](https://medium.com/@jopagel/document-classification-with-inceptionv3-290e2af6628d) about this project that
+goes into more detail about the procedure that was carried out.*
+
 #### 0 Download dataset and install requirements 
 
 In order to finetune the InceptionV3 on the Tobacco 3482 dataset, you have to [download](https://www.kaggle.com/datasets/patrickaudriaz/tobacco3482jpg) it. 
