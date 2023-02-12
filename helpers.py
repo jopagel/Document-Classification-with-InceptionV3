@@ -1,5 +1,6 @@
 import pandas as pd
 import os
+import shutil
 import torch.nn as nn
 import torch.optim as optim
 from torchvision import datasets, models, transforms
@@ -29,7 +30,12 @@ def get_file_paths_and_labels(data_root):
     label_to_index: dict
     dictionary that maps the numerical class label back to the document name
     """
-    image_paths = sorted([str(path).split("jpg\\")[1] for path in data_root.glob('*\\*.jpg')])
+    if os.name == "nt":
+        delimiter = "\\"
+    else:
+        delimiter = "/"
+
+    image_paths = sorted([str(path).split("jpg" + delimiter)[1] for path in data_root.glob("*" + delimiter + "*.jpg")])
     random.shuffle(image_paths)
     label_names = sorted(item.name for item in data_root.glob('*\\') if item.is_dir())
     label_to_index = dict((name, index) for index, name in enumerate(label_names))
@@ -191,7 +197,7 @@ def test_accuracy(net, config, test_dataset, test_sampler, device="cuda"):
     """
 
     test_loader = torch.utils.data.DataLoader(
-        test_dataset, batch_size=config["batch_size"], sampler=test_sampler
+        test_dataset, batch_size=config["batch_size"][0], sampler=test_sampler
     )
     correct = 0
     total = 0
@@ -207,7 +213,7 @@ def test_accuracy(net, config, test_dataset, test_sampler, device="cuda"):
     return correct / total
 
 
-def main(hyperparameter_grid, num_samples=10, max_num_epochs=15, gpus_per_trial=1):
+def main(hyperparameter_grid, save_dir, num_samples=10, max_num_epochs=15, gpus_per_trial=1):
     """
     Function to tune the hyperparameters with Ray.
 
@@ -247,21 +253,5 @@ def main(hyperparameter_grid, num_samples=10, max_num_epochs=15, gpus_per_trial=
             best_trial.last_result["accuracy"]
         )
     )
+    shutil.copytree(best_checkpoint_dir, save_dir)
 
-    best_trained_model, input_size = initialize_model()
-    device = "cpu"
-    if torch.cuda.is_available():
-        device = "cuda:0"
-        if gpus_per_trial > 1:
-            best_trained_model = nn.DataParallel(best_trained_model)
-    best_trained_model.to(device)
-
-    best_checkpoint_dir = best_trial.checkpoint.dir_or_data
-
-    model_state, optimizer_state = torch.load(
-        os.path.join(best_checkpoint_dir, "checkpoint")
-    )
-    best_trained_model.load_state_dict(model_state)
-
-    test_acc = test_accuracy(best_trained_model, hyperparameter_grid, device)
-    print("Best trial test set accuracy: {}".format(test_acc))

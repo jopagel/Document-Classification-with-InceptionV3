@@ -1,10 +1,11 @@
-IMAGE_DIR : 'C:\Users\Johannes\Documents\Tobacco3482-jpg\'
+IMAGE_DIR : "C://Users//Johannes//Documents//Tobacco3482-jpg"
 NUM_CLASSES : 10
 NUM_EPOCHS : 15
 VAL_SPLIT_REL : 0.1
 TEST_SPLIT_REL : 0.1
 NUM_SAMPLES : 15
 INPUT_SIZE: 299
+SAVE_DIR: "./model"
 HYPERPARAMETER_GRID:
   "lr": tune.loguniform(1e-4, 1e-1),
   "batch_size": tune.choice([4, 8, 16]),
